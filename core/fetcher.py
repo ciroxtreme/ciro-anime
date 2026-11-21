@@ -56,18 +56,22 @@ def fetch_html(url: str, retries: int = 2, timeout: int = 12) -> str:
         try:
             cmd = [bin_target, "--page", url, out_dir, "--solve", "--fingerprint", PROFILE_JSON]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+            print(f"[cfsolve finished] returncode={res.returncode}, stdout len={len(res.stdout)}, stderr={res.stderr[-300:] if res.stderr else ''}")
             cleared_file = os.path.join(out_dir, "cleared.html")
             if os.path.exists(cleared_file):
                 with open(cleared_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 if len(content) > 1000 and "Just a moment" not in content and "Attention Required" not in content:
+                    print(f"[cfsolve success] cleared.html read ({len(content)} bytes)")
                     return content
             page_file = os.path.join(out_dir, "page.html")
             if os.path.exists(page_file):
                 with open(page_file, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                 if "Just a moment" not in content and len(content) > 1000:
+                    print(f"[cfsolve success] page.html read ({len(content)} bytes)")
                     return content
+            print(f"[cfsolve warning] neither cleared.html nor page.html contains valid content in {out_dir}")
         except Exception as ex:
             print(f"[fetch_html] cfsolve execution error: {ex}")
         finally:
