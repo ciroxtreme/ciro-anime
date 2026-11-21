@@ -7,7 +7,7 @@ import sys
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from providers import samehadaku, kusonime, otakudesu, kuramanime
+from providers import samehadaku, kusonime, otakudesu
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 WORKER_URL = os.environ.get("WORKER_URL", "https://ciro-anime-wake.captenciro.workers.dev").strip()
@@ -138,13 +138,11 @@ def show_provider_selection(chat_id: int, query: str, message_id: int = None):
     cb_same = cb_cache_put({"action": "start_search", "provider": "samehadaku", "query": q})
     cb_kuso = cb_cache_put({"action": "start_search", "provider": "kusonime", "query": q})
     cb_otaku = cb_cache_put({"action": "start_search", "provider": "otakudesu", "query": q})
-    cb_kura = cb_cache_put({"action": "start_search", "provider": "kuramanime", "query": q})
 
     markup.add(
-        InlineKeyboardButton("📺 Samehadaku (Episode & Ongoing)", callback_data=cb_same),
-        InlineKeyboardButton("📦 Kusonime (Paket Batch Lengkap)", callback_data=cb_kuso),
-        InlineKeyboardButton("🌐 Otakudesu (Episode & Batch)", callback_data=cb_otaku),
-        InlineKeyboardButton("⚡ Kuramanime (Multi Server & Stream)", callback_data=cb_kura)
+        InlineKeyboardButton("📺 Samehadaku (Episode & Direct Link)", callback_data=cb_same),
+        InlineKeyboardButton("📦 Kusonime (Paket Batch GDrive/Mega)", callback_data=cb_kuso),
+        InlineKeyboardButton("🌐 Otakudesu (Episode & Batch)", callback_data=cb_otaku)
     )
 
     if message_id:
@@ -172,8 +170,6 @@ def fetch_provider_page(provider: str, query: str, web_page: int) -> list:
             return kusonime.search(query, page=web_page)
         elif provider == "otakudesu":
             return otakudesu.search(query, page=web_page)
-        elif provider == "kuramanime":
-            return kuramanime.search(query, page=web_page)
     except Exception as e:
         print(f"[fetch_provider_page error] {e}")
     return []
@@ -213,7 +209,7 @@ def render_session_page(chat_id: int, message_id: int, session_id: str):
     end_idx = start_idx + PAGE_SIZE
     page_items = all_items[start_idx:end_idx]
 
-    prov_icons = {"samehadaku": "📺", "kusonime": "📦", "otakudesu": "🌐", "kuramanime": "⚡"}
+    prov_icons = {"samehadaku": "📺", "kusonime": "📦", "otakudesu": "🌐"}
     icon = prov_icons.get(provider, "🎬")
     more_suffix = "+" if has_more_web else ""
 
@@ -285,7 +281,6 @@ def handle_callback(call):
         bot.answer_callback_query(call.id, f"Mencari di {provider.capitalize()}...")
 
         prov_display = {
-            "kuramanime": "Kuramanime (Bypass Cloudflare Turnstile)",
             "samehadaku": "Samehadaku",
             "kusonime": "Kusonime",
             "otakudesu": "Otakudesu"
@@ -450,32 +445,6 @@ def handle_callback(call):
             text += "\n"
 
         text += "<i>💡 Klik server untuk download langsung.</i>"
-        bot.send_message(call.message.chat.id, text, disable_web_page_preview=True)
-
-    # DETAIL KURAMANIME EPISODE
-    elif action == "kuramanime_detail":
-        bot.answer_callback_query(call.id, "⏳ Mengambil data Kuramanime...")
-        url = data.get("url")
-        detail = kuramanime.get_detail(url)
-        if not detail:
-            bot.send_message(call.message.chat.id, "⚠️ Gagal mengambil halaman Kuramanime.")
-            return
-
-        title = detail.get("title", "Kuramanime")
-        downloads = detail.get("downloads", {})
-
-        if not downloads:
-            bot.send_message(call.message.chat.id, f"⚡ <b>{title}</b>\n\nBuka link anime langsung di web:\n<a href=\"{url}\">Tonton di Kuramanime</a>", disable_web_page_preview=False)
-            return
-
-        text = f"⚡ <b>{title}</b>\n\nDaftar Episode / Server Kuramanime:\n\n"
-        for section, links in downloads.items():
-            text += f"🎬 <b>{section}:</b>\n"
-            for link in links[:15]:
-                text += f"  • <a href=\"{link['url']}\">{link['server']}</a>\n"
-            text += "\n"
-
-        text += "<i>💡 Klik episode di atas untuk streaming / download.</i>"
         bot.send_message(call.message.chat.id, text, disable_web_page_preview=True)
 
 # ============================================================================
