@@ -283,8 +283,18 @@ def handle_callback(call):
         provider = data["provider"]
         query = data["query"]
         bot.answer_callback_query(call.id, f"Mencari di {provider.capitalize()}...")
+
+        prov_display = {
+            "kuramanime": "Kuramanime (Bypass Cloudflare Turnstile)",
+            "samehadaku": "Samehadaku",
+            "kusonime": "Kusonime",
+            "otakudesu": "Otakudesu"
+        }.get(provider, provider.capitalize())
+
         bot.edit_message_text(
-            f"⏳ <i>Menghubungi server {provider.capitalize()} untuk \"{query}\"...</i>",
+            f"⏳ <b>Menghubungi server {prov_display}...</b>\n"
+            f"Sedang mencari <i>\"{query}\"</i>...\n\n"
+            "<i>(Jika situs terproteksi Cloudflare, engine cfsolve sedang menembus tantangan secara otomatis, mohon tunggu sebentar...)</i>",
             chat_id=call.message.chat.id,
             message_id=call.message.message_id
         )
