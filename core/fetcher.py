@@ -8,6 +8,7 @@ from curl_cffi import requests
 CURRENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHALLENGE_BIN = os.path.join(CURRENT_DIR, "bin", "challenge")
 PROFILE_JSON = os.path.join(CURRENT_DIR, "profiles", "safari-26-ios.json")
+PROXY_URL = os.environ.get("PROXY_URL", "").strip()
 
 def fetch_html(url: str, retries: int = 2, timeout: int = 12) -> str:
     """Fetch URL with curl_cffi direct / Cloudflare WARP routing, auto-fallback to cfsolve on Cloudflare block"""
@@ -36,10 +37,8 @@ def fetch_html(url: str, retries: int = 2, timeout: int = 12) -> str:
         time.sleep(0.5)
 
     # Fallback to cfsolve engine
-    # Prioritaskan binary yang executable sesuai arsitektur CPU
     bin_target = None
     if os.path.exists(CHALLENGE_BIN) and os.access(CHALLENGE_BIN, os.X_OK):
-        # Cek apakah bin challenge kompatibel arsitektur
         try:
             test_run = subprocess.run([CHALLENGE_BIN, "--help"], capture_output=True, timeout=2)
             if test_run.returncode == 0 or "Usage" in test_run.stdout.decode("utf-8", errors="ignore"):
@@ -55,8 +54,12 @@ def fetch_html(url: str, retries: int = 2, timeout: int = 12) -> str:
         out_dir = tempfile.mkdtemp(prefix="cfsolve_")
         try:
             cmd = [bin_target, "--page", url, out_dir, "--solve", "--fingerprint", PROFILE_JSON]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+            if PROXY_URL:
+                cmd.extend(["--proxy", PROXY_URL])
+
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=50)
             print(f"[cfsolve finished] returncode={res.returncode}, stdout len={len(res.stdout)}, stderr={res.stderr[-300:] if res.stderr else ''}")
+            
             cleared_file = os.path.join(out_dir, "cleared.html")
             if os.path.exists(cleared_file):
                 with open(cleared_file, "r", encoding="utf-8", errors="ignore") as f:
