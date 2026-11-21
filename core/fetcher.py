@@ -9,8 +9,8 @@ CURRENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHALLENGE_BIN = os.path.join(CURRENT_DIR, "bin", "challenge")
 PROFILE_JSON = os.path.join(CURRENT_DIR, "profiles", "safari-26-ios.json")
 
-def fetch_html(url: str, retries: int = 3, timeout: int = 15) -> str:
-    """Fetch URL with curl_cffi direct / Cloudflare WARP routing"""
+def fetch_html(url: str, retries: int = 2, timeout: int = 12) -> str:
+    """Fetch URL with curl_cffi direct / Cloudflare WARP routing, auto-fallback to cfsolve on Cloudflare block"""
     for attempt in range(retries):
         try:
             r = requests.get(
@@ -27,21 +27,41 @@ def fetch_html(url: str, retries: int = 3, timeout: int = 15) -> str:
             if r.status_code == 200 and "Just a moment" not in text and "Attention Required" not in text:
                 return text
             print(f"[fetch_html] Attempt {attempt+1} got status {r.status_code} for {url}")
+            
+            # Jika terkena 403 / Just a moment / Turnstile challenge, langsung break ke cfsolve!
+            if r.status_code in (403, 503) or "Just a moment" in text or "challenges.cloudflare.com" in text or "Attention Required" in text:
+                break
         except Exception as e:
             print(f"[fetch_html] Attempt {attempt+1} exception: {e}")
-        time.sleep(1)
+        time.sleep(0.5)
 
-    # Fallback to cfsolve if challenge platform blocks
-    if os.path.exists(CHALLENGE_BIN) and os.path.exists(PROFILE_JSON):
-        print(f"[fetch_html] Fallback to cfsolve for {url}")
+    # Fallback to cfsolve engine
+    # Prioritaskan binary yang executable sesuai arsitektur CPU
+    bin_target = None
+    if os.path.exists(CHALLENGE_BIN) and os.access(CHALLENGE_BIN, os.X_OK):
+        # Cek apakah bin challenge kompatibel arsitektur
+        try:
+            test_run = subprocess.run([CHALLENGE_BIN, "--help"], capture_output=True, timeout=2)
+            if test_run.returncode == 0 or "Usage" in test_run.stdout.decode("utf-8", errors="ignore"):
+                bin_target = CHALLENGE_BIN
+        except Exception:
+            pass
+
+    if not bin_target:
+        bin_target = shutil.which("cfsolve-cli") or shutil.which("challenge") or shutil.which("cfsolve")
+
+    if bin_target and os.path.exists(PROFILE_JSON):
+        print(f"[fetch_html] ⚡ Escalating to cfsolve engine ({bin_target}) for {url}")
         out_dir = tempfile.mkdtemp(prefix="cfsolve_")
         try:
-            cmd = [CHALLENGE_BIN, "--page", url, out_dir, "--solve", "--fingerprint", PROFILE_JSON]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
+            cmd = [bin_target, "--page", url, out_dir, "--solve", "--fingerprint", PROFILE_JSON]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
             cleared_file = os.path.join(out_dir, "cleared.html")
             if os.path.exists(cleared_file):
                 with open(cleared_file, "r", encoding="utf-8", errors="ignore") as f:
-                    return f.read()
+                    content = f.read()
+                if len(content) > 1000 and "Just a moment" not in content and "Attention Required" not in content:
+                    return content
             page_file = os.path.join(out_dir, "page.html")
             if os.path.exists(page_file):
                 with open(page_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -49,7 +69,7 @@ def fetch_html(url: str, retries: int = 3, timeout: int = 15) -> str:
                 if "Just a moment" not in content and len(content) > 1000:
                     return content
         except Exception as ex:
-            print(f"[fetch_html] cfsolve error: {ex}")
+            print(f"[fetch_html] cfsolve execution error: {ex}")
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 
