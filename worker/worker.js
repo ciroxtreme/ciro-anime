@@ -128,10 +128,44 @@ export default {
         })
       });
 
-      return new Response("OK", { status: 200 });
-    } catch (e) {
-      console.error("Worker Wake Error:", e);
-      return new Response("Error", { status: 500 });
+      // Animasi progress bar dinamis di background via ctx.waitUntil
+      if (ctx && typeof ctx.waitUntil === "function" && wakeMsgId) {
+        ctx.waitUntil((async () => {
+          const steps = [
+            { delay: 4000, text: "🚀 <b>Membangunkan mesin CiroAnime...</b> <i>(Est. ~30-45 detik)</i>\n▓▓▓░░░░░░░ [30%] Menyiapkan Python & environment runner..." },
+            { delay: 5000, text: "🚀 <b>Membangunkan mesin CiroAnime...</b> <i>(Est. ~30-45 detik)</i>\n▓▓▓▓▓░░░░░ [50%] Memuat scraper Samehadaku, Kusonime & Otakudesu..." },
+            { delay: 5000, text: "🚀 <b>Membangunkan mesin CiroAnime...</b> <i>(Est. ~30-45 detik)</i>\n▓▓▓▓▓▓▓░░░ [70%] Mengaktifkan multi-provider anime engine..." },
+            { delay: 6000, text: "🚀 <b>Membangunkan mesin CiroAnime...</b> <i>(Est. ~30-45 detik)</i>\n▓▓▓▓▓▓▓▓▓░ [90%] Hampir selesai! Mengunduh dependensi..." },
+            { delay: 6000, text: "🚀 <b>Membangunkan mesin CiroAnime...</b> <i>(Est. ~30-45 detik)</i>\n▓▓▓▓▓▓▓▓▓▓ [99%] Menyalakan polling bot..." }
+          ];
+
+          for (const s of steps) {
+            await new Promise(r => setTimeout(r, s.delay));
+            try {
+              const res = await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  message_id: wakeMsgId,
+                  text: s.text,
+                  parse_mode: "HTML"
+                })
+              });
+              const resData = await res.json();
+              if (!resData.ok) {
+                break;
+              }
+            } catch (e) {
+              break;
+            }
+          }
+        })());
+      }
+
+      return new Response("Triggered", { status: 200 });
+    } catch (err) {
+      return new Response(`Error: ${err.message}`, { status: 500 });
     }
   }
 };
