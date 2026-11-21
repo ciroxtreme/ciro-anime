@@ -4,9 +4,13 @@ from core.fetcher import fetch_html
 
 BASE_URL = "https://v2.samehadaku.how"
 
-def search(query: str) -> list:
-    """Cari anime di Samehadaku (Episode & Ongoing)"""
-    url = f"{BASE_URL}/?s={urllib.parse.quote(query)}"
+def search(query: str, page: int = 1) -> list:
+    """Cari anime di Samehadaku (Episode & Ongoing) dengan pagination web"""
+    if page > 1:
+        url = f"{BASE_URL}/page/{page}/?s={urllib.parse.quote(query)}"
+    else:
+        url = f"{BASE_URL}/?s={urllib.parse.quote(query)}"
+
     html = fetch_html(url)
     if not html:
         return []
@@ -81,7 +85,6 @@ def parse_download_links(soup: BeautifulSoup) -> dict:
             for li in ul.select("li"):
                 res_tag = li.select_one("strong") or li.select_one("b")
                 res_name = res_tag.get_text(strip=True) if res_tag else "Unknown"
-                # Bersihkan label misal 'MKV 720p' -> '720p'
                 links = []
                 for a in li.select("span a") or li.select("a"):
                     server_name = a.get_text(strip=True)

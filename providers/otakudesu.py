@@ -4,9 +4,13 @@ from core.fetcher import fetch_html
 
 BASE_URL = "https://otakudesu.best"
 
-def search(query: str) -> list:
-    """Cari anime di Otakudesu"""
-    url = f"{BASE_URL}/?s={urllib.parse.quote(query)}"
+def search(query: str, page: int = 1) -> list:
+    """Cari anime di Otakudesu dengan pagination web"""
+    if page > 1:
+        url = f"{BASE_URL}/page/{page}/?s={urllib.parse.quote(query)}"
+    else:
+        url = f"{BASE_URL}/?s={urllib.parse.quote(query)}"
+
     html = fetch_html(url)
     if not html:
         return []

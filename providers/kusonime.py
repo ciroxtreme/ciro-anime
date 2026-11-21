@@ -4,9 +4,13 @@ from core.fetcher import fetch_html
 
 BASE_URL = "https://kusonime.com"
 
-def search(query: str) -> list:
-    """Cari anime batch di Kusonime"""
-    url = f"{BASE_URL}/?s={urllib.parse.quote(query)}"
+def search(query: str, page: int = 1) -> list:
+    """Cari anime batch di Kusonime dengan pagination web"""
+    if page > 1:
+        url = f"{BASE_URL}/page/{page}/?s={urllib.parse.quote(query)}"
+    else:
+        url = f"{BASE_URL}/?s={urllib.parse.quote(query)}"
+
     html = fetch_html(url)
     if not html:
         return []
@@ -56,11 +60,9 @@ def get_detail(url: str) -> dict:
     thumb_el = soup.select_one(".post-thumb img") or soup.select_one("article img")
     thumb = thumb_el.get("src") if thumb_el else ""
 
-    # Sinopsis
     desc_ps = soup.select(".lexot p")
     synopsis = "\n\n".join([p.get_text(strip=True) for p in desc_ps if p.get_text(strip=True)]) if desc_ps else "Sinopsis tidak tersedia."
 
-    # Parse batch download blocks
     batches = []
     blocks = soup.select(".smokeddlrh") or soup.select(".smokeddl")
 

@@ -15,11 +15,11 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 print("🤖 CiroAnime Bot is initializing (On-Demand GitHub Actions Edition)...")
 
-# Cache memori untuk callback & hasil search per sesi
+# Cache memori untuk callback & sesi pagination
 _cb_counter = itertools.count(1)
 CB_CACHE = {}
 
-# Items per page
+# Jumlah judul per halaman Telegram
 PAGE_SIZE = 5
 
 IDLE_TIMEOUT_SECONDS = 3600
@@ -110,8 +110,8 @@ def send_welcome(message):
     text = (
         "🍿 <b>Selamat Datang di CiroAnime Bot!</b>\n\n"
         "Cukup ketik judul anime yang ingin kamu tonton.\n"
-        "Kamu bisa bebas pilih mau cari di sumber mana:\n"
-        "• 📺 <b>Samehadaku:</b> Spesialis Episode & Ongoing Mingguan\n"
+        "Tersedia pilihan sumber:\n"
+        "• 📺 <b>Samehadaku:</b> Spesialis Episode & Ongoing Mingguan (Bisa Next tanpa batas!)\n"
         "• 📦 <b>Kusonime:</b> Spesialis Paket Batch Tamat (GDrive / Mega)\n"
         "• 🌐 <b>Otakudesu:</b> Sumber Alternatif Lengkap\n\n"
         "<i>Semua link download bersih tanpa shortlink, iklan, atau pop-up!</i>"
@@ -119,7 +119,7 @@ def send_welcome(message):
     bot.reply_to(message, text)
 
 # ============================================================================
-# PROVIDER SELECTION MENU
+# MENU PILIHAN SUMBER
 # ============================================================================
 
 def show_provider_selection(chat_id: int, query: str, message_id: int = None):
@@ -135,9 +135,9 @@ def show_provider_selection(chat_id: int, query: str, message_id: int = None):
 
     markup = InlineKeyboardMarkup(row_width=1)
     
-    cb_same = cb_cache_put({"action": "exec_search", "provider": "samehadaku", "query": q, "page": 1})
-    cb_kuso = cb_cache_put({"action": "exec_search", "provider": "kusonime", "query": q, "page": 1})
-    cb_otaku = cb_cache_put({"action": "exec_search", "provider": "otakudesu", "query": q, "page": 1})
+    cb_same = cb_cache_put({"action": "start_search", "provider": "samehadaku", "query": q})
+    cb_kuso = cb_cache_put({"action": "start_search", "provider": "kusonime", "query": q})
+    cb_otaku = cb_cache_put({"action": "start_search", "provider": "otakudesu", "query": q})
 
     markup.add(
         InlineKeyboardButton("📺 Samehadaku (Episode & Ongoing)", callback_data=cb_same),
@@ -158,57 +158,64 @@ def handle_text_query(message):
     show_provider_selection(message.chat.id, message.text)
 
 # ============================================================================
-# PAGINATED SEARCH RESULTS RENDERER
+# INFINITE PAGINATION & SEARCH ENGINE
 # ============================================================================
 
-def render_search_results(chat_id: int, message_id: int, provider: str, query: str, page: int = 1, cached_results: list = None):
-    update_activity(chat_id)
-
-    # Ambil hasil dari cache atau lakukan scraping jika belum ada
-    if cached_results is None:
-        bot.edit_message_text(
-            f"⏳ <i>Menghubungi server {provider.capitalize()} untuk \"{query}\"...</i>",
-            chat_id=chat_id,
-            message_id=message_id
-        )
+def fetch_provider_page(provider: str, query: str, web_page: int) -> list:
+    """Helper untuk mengambil halaman tertentu dari web provider"""
+    try:
         if provider == "samehadaku":
-            results = samehadaku.search(query)
+            return samehadaku.search(query, page=web_page)
         elif provider == "kusonime":
-            results = kusonime.search(query)
+            return kusonime.search(query, page=web_page)
         elif provider == "otakudesu":
-            results = otakudesu.search(query)
-        else:
-            results = []
-    else:
-        results = cached_results
+            return otakudesu.search(query, page=web_page)
+    except Exception as e:
+        print(f"[fetch_provider_page error] {e}")
+    return []
 
-    if not results:
+def render_session_page(chat_id: int, message_id: int, session_id: str):
+    update_activity(chat_id)
+    sess = CB_CACHE.get(session_id)
+    if not sess:
+        bot.edit_message_text("⚠️ Sesi pencarian telah kedaluwarsa. Silakan cari ulang.", chat_id=chat_id, message_id=message_id)
+        return
+
+    provider = sess["provider"]
+    query = sess["query"]
+    all_items = sess["all_items"]
+    current_page = sess["current_page"]
+    has_more_web = sess["has_more_web"]
+
+    if not all_items:
         back_cb = cb_cache_put({"action": "select_provider", "query": query})
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔄 Ganti Sumber Lain", callback_data=back_cb))
         bot.edit_message_text(
             f"❌ <b>Anime \"{query}\" tidak ditemukan di {provider.capitalize()}.</b>\n"
-            "Coba cari menggunakan sumber yang lain di bawah ini:",
+            "Coba pilih sumber yang lain:",
             chat_id=chat_id,
             message_id=message_id,
             reply_markup=markup
         )
         return
 
-    total_items = len(results)
+    total_items = len(all_items)
     total_pages = math.ceil(total_items / PAGE_SIZE)
-    current_page = max(1, min(page, total_pages))
+    current_page = max(1, min(current_page, total_pages))
+    sess["current_page"] = current_page
 
     start_idx = (current_page - 1) * PAGE_SIZE
     end_idx = start_idx + PAGE_SIZE
-    page_items = results[start_idx:end_idx]
+    page_items = all_items[start_idx:end_idx]
 
     prov_icons = {"samehadaku": "📺", "kusonime": "📦", "otakudesu": "🌐"}
     icon = prov_icons.get(provider, "🎬")
+    more_suffix = "+" if has_more_web else ""
 
     header_text = (
         f"{icon} <b>Hasil di {provider.capitalize()}:</b> <i>\"{query}\"</i>\n"
-        f"Total <b>{total_items}</b> judul • Halaman <b>{current_page}/{total_pages}</b>\n\n"
+        f"Total <b>{total_items}{more_suffix}</b> judul terambil • Halaman <b>{current_page}/{total_pages}{more_suffix}</b>\n\n"
         "Pilih judul di bawah untuk melihat link:"
     )
 
@@ -216,35 +223,24 @@ def render_search_results(chat_id: int, message_id: int, provider: str, query: s
 
     for item in page_items:
         action_key = f"{provider}_detail"
-        cb_key = cb_cache_put({"action": action_key, "url": item["url"], "query": query, "provider": provider, "page": current_page})
+        cb_key = cb_cache_put({"action": action_key, "url": item["url"], "query": query, "provider": provider})
         type_badge = "📦" if item.get("type") == "batch" else "📺"
         btn_text = f"{type_badge} {item['title'][:45]}"
         markup.add(InlineKeyboardButton(btn_text, callback_data=cb_key))
 
-    # Baris Tombol Navigasi Pagination
+    # Baris Navigasi Prev - Status - Next
     nav_buttons = []
-    results_cache_id = cb_cache_put(results)
 
+    # Tombol Prev
     if current_page > 1:
-        prev_cb = cb_cache_put({
-            "action": "nav_page",
-            "provider": provider,
-            "query": query,
-            "page": current_page - 1,
-            "results_id": results_cache_id
-        })
+        prev_cb = cb_cache_put({"action": "tg_prev", "sess_id": session_id})
         nav_buttons.append(InlineKeyboardButton("◀️ Prev", callback_data=prev_cb))
 
-    nav_buttons.append(InlineKeyboardButton(f"📄 {current_page}/{total_pages}", callback_data="none"))
+    nav_buttons.append(InlineKeyboardButton(f"📄 {current_page}/{total_pages}{more_suffix}", callback_data="none"))
 
-    if current_page < total_pages:
-        next_cb = cb_cache_put({
-            "action": "nav_page",
-            "provider": provider,
-            "query": query,
-            "page": current_page + 1,
-            "results_id": results_cache_id
-        })
+    # Tombol Next (Tetap aktif jika masih ada item atau masih ada halaman web berikutnya!)
+    if current_page < total_pages or has_more_web:
+        next_cb = cb_cache_put({"action": "tg_next", "sess_id": session_id})
         nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data=next_cb))
 
     markup.row(*nav_buttons)
@@ -278,29 +274,73 @@ def handle_callback(call):
         bot.answer_callback_query(call.id)
         show_provider_selection(call.message.chat.id, data.get("query", ""), message_id=call.message.message_id)
 
-    # EKSEKUSI PENCARIAN PROVIDER
-    elif action == "exec_search":
-        bot.answer_callback_query(call.id, f"Mencari di {data['provider']}...")
-        render_search_results(
+    # MULAI PENCARIAN PROVIDER BARU
+    elif action == "start_search":
+        provider = data["provider"]
+        query = data["query"]
+        bot.answer_callback_query(call.id, f"Mencari di {provider.capitalize()}...")
+        bot.edit_message_text(
+            f"⏳ <i>Menghubungi server {provider.capitalize()} untuk \"{query}\"...</i>",
             chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            provider=data["provider"],
-            query=data["query"],
-            page=1
+            message_id=call.message.message_id
         )
 
-    # NAVIGASI NEXT / PREV HALAMAN
-    elif action == "nav_page":
+        initial_items = fetch_provider_page(provider, query, 1)
+
+        # Buat sesi pagination
+        session_id = cb_cache_put({
+            "provider": provider,
+            "query": query,
+            "web_page": 1,
+            "has_more_web": len(initial_items) >= 10,
+            "all_items": initial_items,
+            "current_page": 1
+        })
+
+        render_session_page(call.message.chat.id, call.message.message_id, session_id)
+
+    # TOMBOL NEXT (DENGAN AUTO-FETCH HALAMAN WEB BERIKUTNYA)
+    elif action == "tg_next":
+        sess_id = data["sess_id"]
+        sess = CB_CACHE.get(sess_id)
+        if not sess:
+            bot.answer_callback_query(call.id, "Sesi kedaluwarsa.", show_alert=True)
+            return
+
+        total_pages = math.ceil(len(sess["all_items"]) / PAGE_SIZE)
+
+        # Jika masih ada halaman lokal di memori, langsung maju
+        if sess["current_page"] < total_pages:
+            bot.answer_callback_query(call.id)
+            sess["current_page"] += 1
+            render_session_page(call.message.chat.id, call.message.message_id, sess_id)
+        # Jika sudah di ujung lokal tapi web masih punya lanjutan -> Tarik halaman web berikutnya!
+        elif sess["has_more_web"]:
+            bot.answer_callback_query(call.id, "⏳ Menarik 20 episode lanjutan dari web...")
+            next_web = sess["web_page"] + 1
+            new_items = fetch_provider_page(sess["provider"], sess["query"], next_web)
+
+            if new_items:
+                sess["all_items"].extend(new_items)
+                sess["web_page"] = next_web
+                sess["current_page"] += 1
+                sess["has_more_web"] = len(new_items) >= 10
+                render_session_page(call.message.chat.id, call.message.message_id, sess_id)
+            else:
+                sess["has_more_web"] = False
+                bot.answer_callback_query(call.id, "🏁 Sudah mencapai episode paling awal di website!", show_alert=True)
+                render_session_page(call.message.chat.id, call.message.message_id, sess_id)
+        else:
+            bot.answer_callback_query(call.id, "Sudah halaman terakhir.")
+
+    # TOMBOL PREV
+    elif action == "tg_prev":
         bot.answer_callback_query(call.id)
-        cached_list = CB_CACHE.get(data.get("results_id"))
-        render_search_results(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            provider=data["provider"],
-            query=data["query"],
-            page=data["page"],
-            cached_results=cached_list
-        )
+        sess_id = data["sess_id"]
+        sess = CB_CACHE.get(sess_id)
+        if sess and sess["current_page"] > 1:
+            sess["current_page"] -= 1
+            render_session_page(call.message.chat.id, call.message.message_id, sess_id)
 
     # DETAIL KUSONIME BATCH
     elif action == "kusonime_detail":
