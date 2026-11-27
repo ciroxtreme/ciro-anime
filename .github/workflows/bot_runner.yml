@@ -28,26 +28,32 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install & Setup Cloudflare WARP SOCKS5 Tunnel
+      - name: Install & Setup Official Cloudflare WARP SOCKS5 Tunnel
         run: |
           echo "📥 Memasang Cloudflare WARP client resmi..."
-          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-          sudo apt-get update -y
-          sudo apt-get install -y cloudflare-warp
+          export DEBIAN_FRONTEND=noninteractive
+          curl -fsSL -o /tmp/warp.deb https://pkg.cloudflareclient.com/pool/jammy/main/c/cloudflare-warp/cloudflare-warp_2024.11.309.0_amd64.deb || curl -fsSL -o /tmp/warp.deb https://pkg.cloudflareclient.com/pool/jammy/main/c/cloudflare-warp/cloudflare-warp_2024.6.497.0_amd64.deb || true
+
+          if [ -f /tmp/warp.deb ] && [ $(stat -c%s /tmp/warp.deb) -gt 1000000 ]; then
+            sudo dpkg -i /tmp/warp.deb || true
+          else
+            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+            sudo apt-get update -y
+            sudo apt-get install -y cloudflare-warp
+          fi
 
           sudo systemctl start warp-svc
           sleep 2
 
-          # Auto registration & mode SOCKS5 proxy port 40000
-          warp-cli --accept-tos registration new || warp-cli --accept-tos register
-          warp-cli --accept-tos mode proxy
+          warp-cli --accept-tos registration new || warp-cli --accept-tos register || true
+          warp-cli --accept-tos mode proxy || true
           warp-cli --accept-tos proxy port 40000 || true
-          warp-cli --accept-tos connect
+          warp-cli --accept-tos connect || true
 
           sleep 3
           echo "✅ Status WARP:"
-          warp-cli --accept-tos status
+          warp-cli --accept-tos status || true
 
       - name: Ensure Executable Permissions
         run: |

@@ -1,0 +1,42 @@
+name: Build and Release x86_64 cfsolve Engine
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev clang cmake
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clone and Build cfsolve Engine
+        run: |
+          git clone --depth 1 https://github.com/ciroxtreme/cfsolve-turbo.git cfsolve || git clone --depth 1 https://x-access-token:${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}@github.com/ciroxtreme/cfsolve-turbo.git cfsolve
+          cd cfsolve
+          cargo build --release --bin challenge
+          strip target/release/challenge
+          cp target/release/challenge ../bin/challenge
+          mkdir -p ../profiles
+          cp -r profiles/* ../profiles/
+
+      - name: Commit Updated Engine Binary
+        run: |
+          git config --local user.email "ciroxtreme@users.noreply.github.com"
+          git config --local user.name "ciroxtreme"
+          git add bin/challenge profiles/
+          git diff --staged --quiet || git commit -m "chore(engine): update prebuilt x86_64 challenge CLI v5.0 binary and profiles"
+          git push origin main
